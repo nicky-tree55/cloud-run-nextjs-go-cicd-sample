@@ -1,0 +1,20 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      target: init
+    tty: true
+    stdin_open: true
+    init: true
+    volumes:
+      - ./frontend/src:/app
+
+  backend:
+    build:
+      context: ./backend
+      target: init
+    tty: true
+    stdin_open: true
+    init: true
+    volumes:
+      - ./backend/src:/app
