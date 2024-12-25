@@ -1,0 +1,69 @@
+name: terraform-destroy
+on:
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: ${{ secrets.GCP_REGION }}
+  BUILD_ACCOUNT_EMAIL: ${{ secrets.BUILD_ACCOUNT }}
+  OPERATION_ACCOUNT_EMAIL: ${{ secrets.OPERATION_ACCOUNT }}
+  WORKLOAD_IDENTITY_PROVIDER_NAME: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+
+  ARTIFACT_REPO: ${{ secrets.ARTIFACT_REPO }}
+
+  ROOT_PATH_IAC_APPLICATION: ./terraform/application
+  IMAGE_SUFFIX_API: api
+  IMAGE_SUFFIX_WEB: web
+
+jobs:
+  terraform:
+    name: "Terraform-Destory"
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    permissions:
+      contents: "read"
+      id-token: "write"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - id: 'auth'
+        name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          token_format: 'access_token'
+          service_account: ${{ env.BUILD_ACCOUNT_EMAIL }}
+          workload_identity_provider: '${{ env.WORKLOAD_IDENTITY_PROVIDER_NAME }}'
+      - name: Get Latest Image Tag of Github SHA
+        id: get_sha
+        run: |
+          github_sha_latest_text=$(gcloud artifacts docker images list ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.IMAGE_SUFFIX_WEB }} --limit=1 --include-tags --filter="tags[]=latest" --format="json" | jq -r '.[0].tags[0]')
+          if [ -z "$github_sha_latest_text" ]; then
+            echo "No Latest image found."
+            exit 1
+          fi
+          echo "Latest image sha tag is $github_sha_latest_text"
+          echo "github_sha_latest=$github_sha_latest_text" >> $GITHUB_ENV
+
+      - id: init
+        name: Terraform Init
+        working-directory: "${{ env.ROOT_PATH_IAC_APPLICATION }}"
+        run: terraform init
+      - id: plan
+        name: Terraform Plan Destroy
+        working-directory: "${{ env.ROOT_PATH_IAC_APPLICATION }}"
+        run: terraform plan -no-color -lock=false -destroy
+        env:
+          TF_VAR_docker_image_api: "${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.IMAGE_SUFFIX_API }}:${{ env.github_sha_latest }}"
+          TF_VAR_docker_image_web: "${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.IMAGE_SUFFIX_WEB }}:${{ env.github_sha_latest }}"
+          TF_VAR_region: ${{ env.REGION }}
+          TF_VAR_service_account: ${{ env.OPERATION_ACCOUNT_EMAIL }}
+      - id: Destroy
+        name: Terraform Destroy
+        working-directory: "${{ env.ROOT_PATH_IAC_APPLICATION }}"
+        run: terraform destroy -auto-approve
+        env:
+          TF_VAR_docker_image_api: "${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.IMAGE_SUFFIX_API }}:${{ env.github_sha_latest }}"
+          TF_VAR_docker_image_web: "${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.IMAGE_SUFFIX_WEB }}:${{ env.github_sha_latest }}"
+          TF_VAR_region: ${{ env.REGION }}
+          TF_VAR_service_account: ${{ env.OPERATION_ACCOUNT_EMAIL }}

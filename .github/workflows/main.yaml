@@ -1,0 +1,285 @@
+name: cicd
+on:
+  push:
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'terraform/application/**'
+      - '.github/workflows/main.yaml'
+      - '.github/actions/**'
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'terraform/application/**'
+      - '.github/workflows/main.yaml'
+      - '.github/actions/**'
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: ${{ secrets.GCP_REGION }}
+  BUILD_ACCOUNT_EMAIL: ${{ secrets.BUILD_ACCOUNT }}
+  OPERATION_ACCOUNT_EMAIL: ${{ secrets.OPERATION_ACCOUNT }}
+  WORKLOAD_IDENTITY_PROVIDER_NAME: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+
+  TF_VAR_google_cloud_project_id: ${{ secrets.GCP_PROJECT_ID }}
+  TF_VAR_api_version: ${{ github.sha }}
+
+  ARTIFACT_REPO: ${{ secrets.ARTIFACT_REPO }}
+
+  ROOT_PATH_API: ./backend
+  ROOT_PATH_WEB: ./frontend
+  ROOT_PATH_IAC_APPLICATION: ./terraform/application
+
+  IMAGE_SUFFIX_API: api
+  IMAGE_SUFFIX_WEB: web
+
+  API_URL: "http://localhost:8081"
+
+jobs:
+  build-api:
+    name: Docker Build API
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: (github.event_name == 'pull_request' && github.base_ref == 'main')
+    permissions:
+      contents: "read"
+      id-token: "write"
+    steps:
+      - id: "checkout"
+        name: "Checkout"
+        uses: actions/checkout@v4
+      - name: 'Authenticate to Google Cloud'
+        id: 'auth'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          token_format: 'access_token'
+          service_account: ${{ env.BUILD_ACCOUNT_EMAIL }}
+          workload_identity_provider: '${{ env.WORKLOAD_IDENTITY_PROVIDER_NAME }}'
+      - name: Authorize Docker
+        id: "docker-auth"
+        uses: "docker/login-action@v3"
+        with:
+          username: "oauth2accesstoken"
+          password: "${{ steps.auth.outputs.access_token }}"
+          registry: "${{ env.REGION }}-docker.pkg.dev"
+      - name: Handle Docker Image for API
+        uses: ./.github/actions/docker-image-handler
+        with:
+          context: "${{ env.ROOT_PATH_API }}"
+          image_suffix: "${{ env.IMAGE_SUFFIX_API }}"
+          build_args: ""
+  
+  build-web:
+    name: Docker Build WEB
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: (github.event_name == 'pull_request' && github.base_ref == 'main')
+    permissions:
+      contents: "read"
+      id-token: "write"
+    steps:
+      - id: "checkout"
+        name: "Checkout"
+        uses: actions/checkout@v4
+      - id: 'auth'
+        name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          token_format: 'access_token'
+          service_account: ${{ env.BUILD_ACCOUNT_EMAIL }}
+          workload_identity_provider: '${{ env.WORKLOAD_IDENTITY_PROVIDER_NAME }}'
+      - id: "docker-auth"
+        name: Authorize Docker
+        uses: "docker/login-action@v3"
+        with:
+          username: "oauth2accesstoken"
+          password: "${{ steps.auth.outputs.access_token }}"
+          registry: "${{ env.REGION }}-docker.pkg.dev"
+
+      - name: Handle Docker Image for Web
+        uses: ./.github/actions/docker-image-handler
+        with:
+          context: "${{ env.ROOT_PATH_WEB }}"
+          image_suffix: "${{ env.IMAGE_SUFFIX_WEB }}"
+          build_args: |
+            NEXT_PUBLIC_API_URL=${{ env.API_URL }}
+
+  terraform-test:
+    name: Terraform Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    steps:
+      - id: "checkout"
+        name: "Checkout"
+        uses: actions/checkout@v4
+      - id: 'auth'
+        name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          token_format: 'access_token'
+          service_account: ${{ env.BUILD_ACCOUNT_EMAIL }}
+          workload_identity_provider: '${{ env.WORKLOAD_IDENTITY_PROVIDER_NAME }}'
+      - id: "terraform-setup"
+        name: setup
+        uses: hashicorp/setup-terraform@v3
+      - id: fmt
+        name: Terraform fmt
+        working-directory: "${{ env.ROOT_PATH_IAC_APPLICATION }}"
+        run: terraform fmt -recursive
+        continue-on-error: true
+      - id: init
+        name: Terraform Init
+        working-directory: "${{ env.ROOT_PATH_IAC_APPLICATION }}"
+        run: terraform init
+      - id: validate
+        name: Terraform Validate
+        working-directory: "${{ env.ROOT_PATH_IAC_APPLICATION }}"
+        run: terraform validate -no-color
+
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    if: (github.event_name == 'pull_request' && github.base_ref == 'main')
+    needs: [terraform-test, build-api, build-web]
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    steps:
+      - id: "checkout"
+        name: "Checkout"
+        uses: actions/checkout@v4
+      - id: 'auth'
+        name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          token_format: 'access_token'
+          service_account: ${{ env.BUILD_ACCOUNT_EMAIL }}
+          workload_identity_provider: '${{ env.WORKLOAD_IDENTITY_PROVIDER_NAME }}'
+      - name: Get Latest Image Tag of Github SHA
+        id: get_sha
+        run: |
+          github_sha_latest_text=$(gcloud artifacts docker images list ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.IMAGE_SUFFIX_WEB }} --limit=1 --include-tags --filter="tags[]=latest" --format="json" | jq -r '.[0].tags[0]')
+          if [ -z "$github_sha_latest_text" ]; then
+            echo "No Latest image found."
+            exit 1
+          fi
+          echo "Latest image sha tag is $github_sha_latest_text"
+          echo "github_sha_latest=$github_sha_latest_text" >> $GITHUB_ENV
+      - id: "terraform-setup"
+        name: setup
+        uses: hashicorp/setup-terraform@v3
+      - id: init
+        name: Terraform Init
+        working-directory: "${{ env.ROOT_PATH_IAC_APPLICATION }}"
+        run: terraform init
+      - id: plan
+        name: Terraform Plan
+        working-directory: "${{ env.ROOT_PATH_IAC_APPLICATION }}"
+        run: terraform plan -no-color -lock=false
+        continue-on-error: true
+        env:
+          TF_VAR_docker_image_api: "${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.IMAGE_SUFFIX_API }}:${{ env.github_sha_latest }}"
+          TF_VAR_docker_image_web: "${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.IMAGE_SUFFIX_WEB }}:${{ env.github_sha_latest }}"
+          TF_VAR_region: ${{ env.REGION }}
+          TF_VAR_service_account: ${{ env.OPERATION_ACCOUNT_EMAIL }}
+      - id: "pull-request-comment"
+        name: Create Pull Request Comment
+        uses: actions/github-script@v7
+        env:
+          PLAN: "terraform\n${{ steps.plan.outputs.stdout }}"
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const output = `#### Terraform Format and Style 🖌\`${{ steps.fmt.outcome }}\`
+            #### Terraform Initialization ⚙️\`${{ steps.init.outcome }}\`
+            #### Terraform Validation 🤖\`${{ steps.validate.outcome }}\`
+            <details><summary>Validation Output</summary>
+
+            \`\`\`\n
+            ${{ steps.validate.outputs.stdout }}
+            \`\`\`
+
+            </details>
+
+            #### Terraform Plan 📖\`${{ steps.plan.outcome }}\`
+
+            <details><summary>Show Plan</summary>
+
+            \`\`\`\n
+            ${process.env.PLAN}
+            \`\`\`
+
+            </details>
+
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Working Directory: \`${{ env.tf_actions_working_dir }}\`, Workflow: \`${{ github.workflow }}\`*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+  
+  deploy:
+    name: Deploy(terraform apply)
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    steps:
+      - id: "checkout"
+        name: "Checkout"
+        uses: actions/checkout@v4
+      - id: 'auth'
+        name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          token_format: 'access_token'
+          service_account: ${{ env.BUILD_ACCOUNT_EMAIL }}
+          workload_identity_provider: '${{ env.WORKLOAD_IDENTITY_PROVIDER_NAME }}'
+      - name: Get Latest Image Tag of Github SHA
+        id: get_sha
+        run: |
+          github_sha_latest_text=$(gcloud artifacts docker images list ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.IMAGE_SUFFIX_WEB }} --limit=1 --include-tags --filter="tags[]=latest" --format="json" | jq -r '.[0].tags[0]')
+          if [ -z "$github_sha_latest_text" ]; then
+            echo "No Latest image found."
+            exit 1
+          fi
+          echo "Latest image sha tag is $github_sha_latest_text"
+          echo "github_sha_latest=$github_sha_latest_text" >> $GITHUB_ENV
+      - id: "terraform-setup"
+        name: setup
+        uses: hashicorp/setup-terraform@v3
+      - id: init
+        name: Terraform Init
+        working-directory: "${{ env.ROOT_PATH_IAC_APPLICATION }}"
+        run: terraform init
+      - id: plan
+        name: Terraform Plan
+        working-directory: "${{ env.ROOT_PATH_IAC_APPLICATION }}"
+        run: terraform plan -no-color -lock=false
+        continue-on-error: true
+        env:
+          TF_VAR_docker_image_api: "${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.IMAGE_SUFFIX_API }}:${{ env.github_sha_latest }}"
+          TF_VAR_docker_image_web: "${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.IMAGE_SUFFIX_WEB }}:${{ env.github_sha_latest }}"
+          TF_VAR_region: ${{ env.REGION }}
+          TF_VAR_service_account: ${{ env.OPERATION_ACCOUNT_EMAIL }}
+      - id: apply
+        name: Terraform Apply
+        working-directory: "${{ env.ROOT_PATH_IAC_APPLICATION }}"
+        run: terraform apply -auto-approve -lock=false
+        continue-on-error: true
+        env:
+          TF_VAR_docker_image_api: "${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.IMAGE_SUFFIX_API }}:${{ env.github_sha_latest }}"
+          TF_VAR_docker_image_web: "${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.IMAGE_SUFFIX_WEB }}:${{ env.github_sha_latest }}"
+          TF_VAR_region: ${{ env.REGION }}
+          TF_VAR_service_account: ${{ env.OPERATION_ACCOUNT_EMAIL }}

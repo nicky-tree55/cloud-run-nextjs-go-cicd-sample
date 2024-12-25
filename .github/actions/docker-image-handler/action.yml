@@ -1,0 +1,62 @@
+name: "Docker Image Handler"
+description: "Build, Push, and Manage Docker images at Artifact Registry"
+inputs:
+  context:
+    description: "Build context for Docker image"
+    required: true
+  image_suffix:
+    description: "Image suffix for tagging"
+    required: true
+  build_args:
+    description: "Optional build arguments for Docker build"
+    required: false
+outputs: {}
+runs:
+  using: "composite"
+  steps:
+    # DockerイメージをビルドしてArtifact Registryにpushする
+    - name: Build Docker Image
+      uses: docker/build-push-action@v4
+      with:
+        context: ${{ inputs.context }}
+        platforms: linux/amd64
+        push: true
+        tags: |
+          ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ inputs.image_suffix }}:${{ github.sha }}
+        build-args: ${{ inputs.build_args }}
+
+    # Artifact Registryにあるbackupイメージを削除する
+    - name: Remove Previous Image
+      shell: bash
+      run: |
+        BACKUP_IMAGE=$(gcloud artifacts docker images list ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ inputs.image_suffix }} --include-tags --filter="tags[]=backup" --format="text(IMAGE)")
+        if [ -n "$BACKUP_IMAGE" ]; then
+          echo "Backup image found. Deleting..."
+          gcloud artifacts docker images delete ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ inputs.image_suffix }}:backup --delete-tags --quiet 
+        else
+          echo "No backup image found."
+        fi
+
+    # Artifact Registryにあるlatestイメージにbackupタグをつける
+    - name: Tag Docker image backup
+      shell: bash
+      run: |
+        LATEST_IMAGE=$(gcloud artifacts docker images list ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }} --include-tags --filter="tags[]=latest" --format="text(IMAGE)")
+        if [ -n "$LATEST_IMAGE" ]; then
+          echo "Latest image found. Tagging..."
+          gcloud artifacts docker tags add \
+          ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ inputs.image_suffix }}:latest \
+          ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ inputs.image_suffix }}:backup \
+          --quiet
+        else
+          echo "No latest image found."
+        fi
+
+    # Artifact Registryにpushしたイメージにlatestタグをつける
+    - name: Tag Docker image latest
+      shell: bash
+      run: |
+        gcloud artifacts docker tags add \
+        ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ inputs.image_suffix }}:${{ github.sha }} \
+        ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ inputs.image_suffix }}:latest \
+        --quiet

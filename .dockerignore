@@ -1,0 +1,6 @@
+README.md
+.env_sample
+Makefile
+terraform/*
+.gitiignore
+.github/*

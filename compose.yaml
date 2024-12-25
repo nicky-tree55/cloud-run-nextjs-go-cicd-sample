@@ -1,0 +1,32 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      target: dev
+    ports:
+      - "${FRONTEND_PORT}:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://backend:${BACKEND_PORT}
+    tty: true
+    stdin_open: true
+    init: true
+    volumes:
+      - ./frontend/src:/app
+    command: npm run dev
+    depends_on:
+      - backend
+
+  backend:
+    build:
+      context: ./backend
+      target: dev
+    ports:
+      - "${BACKEND_PORT}:8080"
+    tty: true
+    stdin_open: true
+    init: true
+    environment:
+      - BACKEND_PORT=${BACKEND_PORT}
+    volumes:
+      - ./backend/src:/app
+    command: go run .
