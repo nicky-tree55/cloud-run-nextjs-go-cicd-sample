@@ -34,10 +34,6 @@ docker composeを利用してdev stageでの動作確認方法を示します。
 
 ### Goプロジェクト作成
 #### 新規作成
-1. backend/srcフォルダを作成
-```sh
-mkdir backend/src
-```  
 1. go mod initを実行  
 
 docker compose -f compose-init.yaml run --rm backend sh -c "go mod init <プロジェクト名>"
@@ -56,10 +52,6 @@ make go-mod-tidy
 
 ### Next.jsプロジェクト作成
 #### 新規作成
-1. frontend.srcフォルダ作成  
-```sh
-mkdir frontend/src
-```
 1. Next.jsプロジェクトを新規作成
 ```sh
 docker compose -f compose-init.yaml run --rm frontend sh -c "npx create-next-app@latest . --use-npm --typescript"
@@ -128,6 +120,13 @@ Dockerfileをビルドしてrunner stageでの動作確認方法を示します�
         terraform plan
         terraform apply
         ```
+    5. terraform applyの後に表示される3つの変数は手順4で利用します。
+        ```
+        build_service_account_email = "***@****.iam.gserviceaccount.com"
+        operation_service_account_email = "***@****.iam.gserviceaccount.com"
+        workload_identity_provider_name = "projects/***/locations/global/workloadIdentityPools/***/providers/***"
+        ```
+
 1. application用terraform.tfstate保存用バケットを作成
     1. `terraform/bucket/terraform.tfvars_sample`を複製して`terraform/bucket/terraform.tfvars`にリネーム
     1. `terraform.tfvars`のproject_idを設定する。

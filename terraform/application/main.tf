@@ -1,10 +1,11 @@
 locals {
+  bucket_name  = "cloud-run-cicd-tfstate"
   service_name = "cloud-run-cicd-service"
 }
 
 terraform {
   backend "gcs" {
-    bucket = var.bucket_name
+    bucket = local.bucket_name
     prefix = "application/terraform"
   }
 }

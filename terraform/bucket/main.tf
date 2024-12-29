@@ -1,9 +1,10 @@
 locals {
+  bucket_name   = "cloud-run-cicd-tfstate"
   storage_class = "REGIONAL"
 }
 
 resource "google_storage_bucket" "terraform-state-store" {
-  name          = var.bucket_name
+  name          = local.bucket_name
   location      = var.bucket_location
   storage_class = local.storage_class
 
