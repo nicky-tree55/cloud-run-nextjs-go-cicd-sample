@@ -12,7 +12,6 @@ services:
     init: true
     volumes:
       - ./frontend/src:/app
-    command: npm run dev
     depends_on:
       - backend
 
