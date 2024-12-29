@@ -1,10 +1,10 @@
 locals {
-  service_name = "cloud-run-ga-cicd-service"
+  service_name = "cloud-run-cicd-service"
 }
 
 terraform {
   backend "gcs" {
-    bucket = "cloud-run-ga-cicd-terraform-bucket"
+    bucket = var.bucket_name
     prefix = "application/terraform"
   }
 }

@@ -3,6 +3,11 @@ resource "google_project_service" "iamcredentials" {
   service = "iamcredentials.googleapis.com"
   project = var.project_id
 }
+# Artifact RegistryのAPIを有効化
+resource "google_project_service" "artifactregistry" {
+  service = "artifactregistry.googleapis.com"
+  project = var.project_id
+}
 
 # Cloud Runのサービスアカウントを作成
 resource "google_service_account" "operation_account" {
@@ -92,6 +97,7 @@ resource "google_project_iam_member" "build_account_custom_permissions" {
 
 # Ariifact Registryへのリポジトリを作成
 resource "google_artifact_registry_repository" "repo" {
+  depends_on    = [google_project_service.artifactregistry]
   repository_id = var.artifact_registry_repository_id
   location      = var.location
   project       = var.project_id
@@ -127,17 +133,33 @@ resource "google_project_iam_member" "build_af_read_create" {
   member  = "serviceAccount:${google_service_account.build_account.email}"
 }
 
-output "build_service_account_email" {
+
+output "GCP_PROJECT_ID" {
+  value       = var.project_id
+  description = "GCP Project ID"
+}
+
+output "GCP_REGION" {
+  value       = var.location
+  description = "GCP Location"
+}
+
+output "ARTIFACT_REPO" {
+  value       = google_artifact_registry_repository.repo.repository_id
+  description = "Artifact Registry Repository ID"
+}
+
+output "BUILD_ACCOUNT" {
   value       = google_service_account.build_account.email
   description = "Build Service Account email"
 }
 
-output "operation_service_account_email" {
+output "OPERATION_ACCOUNT" {
   value       = google_service_account.operation_account.email
   description = "Operation Service Account email"
 }
 
-output "workload_identity_provider_name" {
+output "WORKLOAD_IDENTITY_PROVIDER" {
   value       = google_iam_workload_identity_pool_provider.main.name
   description = "Workload Identity Pool Provider Name"
 }
