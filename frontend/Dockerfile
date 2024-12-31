@@ -20,7 +20,6 @@ WORKDIR /app
 
 FROM base AS builder
 WORKDIR /app
-ENV NODE_ENV=development
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 COPY ./src/package.json ./src/package-lock.json ./
