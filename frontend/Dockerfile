@@ -1,5 +1,5 @@
 
-ARG IMG_VER="22.12.0-slim"
+ARG IMG_VER="20.18-slim"
 
 
 ### base ####
@@ -20,16 +20,16 @@ WORKDIR /app
 
 FROM base AS builder
 WORKDIR /app
-ENV NODE_ENV=production
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 COPY ./src/package.json ./src/package-lock.json ./
-RUN npm ci --omit=dev
+RUN npm ci
+ENV NODE_ENV=production
 COPY ./src .
 RUN npm run build
 
 
-FROM gcr.io/distroless/nodejs22-debian12 AS runner
+FROM gcr.io/distroless/nodejs20-debian12 AS runner
 WORKDIR /app
 
 COPY --from=builder --chown=nonroot:nonroot /app/.next/standalone ./

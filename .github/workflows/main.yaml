@@ -21,9 +21,6 @@ env:
   OPERATION_ACCOUNT_EMAIL: ${{ secrets.OPERATION_ACCOUNT }}
   WORKLOAD_IDENTITY_PROVIDER_NAME: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
 
-  TF_VAR_google_cloud_project_id: ${{ secrets.GCP_PROJECT_ID }}
-  TF_VAR_api_version: ${{ github.sha }}
-
   ARTIFACT_REPO: ${{ secrets.ARTIFACT_REPO }}
 
   ROOT_PATH_API: ./backend
