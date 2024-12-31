@@ -44,7 +44,9 @@ jobs:
           fi
           echo "Latest image sha tag is $github_sha_latest_text"
           echo "github_sha_latest=$github_sha_latest_text" >> $GITHUB_ENV
-
+      - id: "terraform-setup"
+        name: setup
+        uses: hashicorp/setup-terraform@v3
       - id: init
         name: Terraform Init
         working-directory: "${{ env.ROOT_PATH_IAC_APPLICATION }}"
