@@ -1,6 +1,5 @@
 
-ARG IMG_VER="20.18-slim"
-
+ARG IMG_VER="22.12.0-slim"
 
 ### base ####
 FROM node:${IMG_VER} AS base
@@ -29,7 +28,7 @@ COPY ./src .
 RUN npm run build
 
 
-FROM gcr.io/distroless/nodejs20-debian12 AS runner
+FROM gcr.io/distroless/nodejs22-debian12 AS runner
 WORKDIR /app
 
 COPY --from=builder --chown=nonroot:nonroot /app/.next/standalone ./
