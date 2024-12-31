@@ -9,6 +9,12 @@ resource "google_project_service" "artifactregistry" {
   project = var.project_id
 }
 
+# Cloud RunのqAPIを有効化
+resource "google_project_service" "cloudrun" {
+  service = "run.googleapis.com"
+  project = var.project_id
+}
+
 # Cloud Runのサービスアカウントを作成
 resource "google_service_account" "operation_account" {
   account_id                   = var.operation_sa_id
